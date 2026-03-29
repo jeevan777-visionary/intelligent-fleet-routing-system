@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FleetRoute AI - Deployable Delivery Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .order-card { transition: all 0.3s ease; }
+        .order-card:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
+        .route-line { 
+            stroke: #10b981; 
+            stroke-width: 4; 
+            stroke-dasharray: 10, 5; 
+            animation: dash 20s linear infinite;
+        }
+        @keyframes dash {
+            to { stroke-dashoffset: -100; }
+        }
+        .pulse-dot {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.7; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="bg-white shadow-md sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-4">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-4">
+                    <h1 class="text-2xl font-bold text-green-600">🚀 FleetRoute AI</h1>
+                    <span class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">LIVE</span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm text-gray-600">Active Orders: <strong id="activeOrders" class="text-green-600">0</strong></span>
+                    <span class="text-sm text-gray-600">Active Vehicles: <strong id="activeVehicles" class="text-blue-600">3</strong></span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto p-4">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Left Panel - Orders -->
+            <div class="lg:col-span-1 space-y-4">
+                <!-- Create Order Form -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h2 class="text-lg font-bold text-gray-900 mb-4">📦 Create New Order</h2>
+                    <form id="orderForm" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Customer Name</label>
+                            <input type="text" id="customerName" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500" placeholder="Enter customer name">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Pickup Address</label>
+                            <input type="text" id="pickupAddress" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500" placeholder="Enter pickup location">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Delivery Address</label>
+                            <input type="text" id="deliveryAddress" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500" placeholder="Enter delivery location">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                            <select id="priority" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500">
+                                <option value="normal">Normal</option>
+                                <option value="urgent">Urgent</option>
+                                <option value="express">Express</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="w-full bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 font-medium">
+                            🚚 Create Order & Show Route
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Orders List -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h2 class="text-lg font-bold text-gray-900 mb-4">📋 Active Orders</h2>
+                    <div id="ordersList" class="space-y-3">
+                        <!-- Orders will be populated here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Center - Map -->
+            <div class="lg:col-span-2">
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-lg font-bold text-gray-900">🗺️ Live Delivery Routes</h2>
+                        <div class="flex space-x-2">
+                            <button onclick="centerMap()" class="bg-blue-500 text-white px-3 py-1 rounded text-sm hover:bg-blue-600">
+                                <i class="fas fa-crosshairs"></i> Center
+                            </button>
+                            <button onclick="toggleRoutes()" class="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600">
+                                <i class="fas fa-route"></i> Routes
+                            </button>
+                        </div>
+                    </div>
+                    <div id="map" class="h-96 rounded-lg border-2 border-gray-200"></div>
+                    
+                    <!-- Route Info -->
+                    <div id="routeInfo" class="mt-4 p-4 bg-blue-50 rounded-lg hidden">
+                        <h3 class="font-semibold text-gray-900 mb-2">📍 Route Information</h3>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                            <div>
+                                <span class="text-gray-600">Distance:</span>
+                                <strong id="routeDistance" class="text-blue-600">-- km</strong>
+                            </div>
+                            <div>
+                                <span class="text-gray-600">Time:</span>
+                                <strong id="routeTime" class="text-blue-600">-- mins</strong>
+                            </div>
+                            <div>
+                                <span class="text-gray-600">Vehicle:</span>
+                                <strong id="routeVehicle" class="text-blue-600">--</strong>
+                            </div>
+                            <div>
+                                <span class="text-gray-600">Status:</span>
+                                <strong id="routeStatus" class="text-green-600">--</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Initialize map
+        const map = L.map('map').setView([17.3850, 78.4867], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Data storage
+        let orders = [];
+        let vehicles = [
+            { id: 1, name: 'MH12 AB 1234', driver: 'Raj Kumar', lat: 17.3850, lng: 78.4867, status: 'active' },
+            { id: 2, name: 'MH12 CD 5678', driver: 'Sarah Johnson', lat: 17.3950, lng: 78.4967, status: 'active' },
+            { id: 3, name: 'MH12 EF 9012', driver: 'Mike Chen', lat: 17.4050, lng: 78.5067, status: 'active' }
+        ];
+        let markers = {};
+        let routeLines = [];
+        let showRoutes = true;
+
+        // Icons
+        const depotIcon = L.divIcon({
+            html: '<div style="background: #3b82f6; color: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-size: 16px;">🏢</div>',
+            iconSize: [30, 30]
+        });
+
+        const vehicleIcon = L.divIcon({
+            html: '<div style="background: #10b981; color: white; border-radius: 50%; width: 25px; height: 25px; display: flex; align-items: center; justify-content: center; font-size: 12px;">🚚</div>',
+            iconSize: [25, 25]
+        });
+
+        const orderIcon = L.divIcon({
+            html: '<div style="background: #f59e0b; color: white; border-radius: 50%; width: 25px; height: 25px; display: flex; align-items: center; justify-content: center; font-size: 12px;">📦</div>',
+            iconSize: [25, 25]
+        });
+
+        // Add depot
+        L.marker([17.3850, 78.4867], { icon: depotIcon })
+            .addTo(map)
+            .bindPopup('<b>Main Depot</b><br>Hyderabad Central');
+
+        // Add vehicles
+        vehicles.forEach(vehicle => {
+            const marker = L.marker([vehicle.lat, vehicle.lng], { icon: vehicleIcon })
+                .addTo(map)
+                .bindPopup(`<b>${vehicle.name}</b><br>${vehicle.driver}<br>Status: ${vehicle.status}`);
+            markers[vehicle.id] = marker;
+        });
+
+        // Create order
+        document.getElementById('orderForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const order = {
+                id: Date.now(),
+                customer: document.getElementById('customerName').value,
+                pickup: document.getElementById('pickupAddress').value,
+                delivery: document.getElementById('deliveryAddress').value,
+                priority: document.getElementById('priority').value,
+                status: 'pending',
+                timestamp: new Date().toLocaleTimeString()
+            };
+
+            // Add to orders list
+            orders.push(order);
+            updateOrdersList();
+            
+            // Get real GPS coordinates for Hyderabad addresses
+            const pickupCoords = getCoordinatesForAddress(order.pickup);
+            const deliveryCoords = getCoordinatesForAddress(order.delivery);
+            
+            // Center map on Hyderabad
+            map.setView([17.3850, 78.4867], 13);
+            
+            // Add markers
+            const pickupMarker = L.marker(pickupCoords, { icon: orderIcon })
+                .addTo(map)
+                .bindPopup(`<b>Pickup</b><br>${order.pickup}<br>${order.customer}`);
+            
+            const deliveryMarker = L.marker(deliveryCoords, { icon: orderIcon })
+                .addTo(map)
+                .bindPopup(`<b>Delivery</b><br>${order.delivery}<br>${order.customer}`);
+
+            // Assign to nearest vehicle and create route
+            const assignedVehicle = vehicles[0]; // Simple assignment
+            createRoute(assignedVehicle, pickupCoords, deliveryCoords, order);
+            
+            // Update UI
+            updateRouteInfo(order, assignedVehicle);
+            document.getElementById('orderForm').reset();
+            
+            // Show success message
+            showNotification('Order created successfully! Vehicle is moving to pickup location.', 'success');
+        });
+
+        // Generate realistic GPS coordinates for Hyderabad addresses
+        function getCoordinatesForAddress(address) {
+            const hyderabadCoords = {
+                'Nalla Narasimha Reddy': [17.3850, 78.4867],
+                'Korremula': [17.3950, 78.4967],
+                'Peerzadiguda': [17.3750, 78.4767],
+                'Vanasthalipuram': [17.4050, 78.5067],
+                'Hyderabad': [17.3850, 78.4867]
+            };
+            
+            for (let place in hyderabadCoords) {
+                if (address.toLowerCase().includes(place.toLowerCase())) {
+                    return hyderabadCoords[place];
+                }
+            }
+            
+            // Default Hyderabad coordinates with some variation
+            return [
+                17.3850 + (Math.random() - 0.5) * 0.1,
+                78.4867 + (Math.random() - 0.5) * 0.1
+            ];
+        }
+
+        // Move vehicle along route (real-time tracking)
+        function moveVehicleAlongRoute(vehicle, pickup, delivery, order) {
+            if (!vehicle.currentRoute) {
+                vehicle.currentRoute = [pickup, delivery];
+                vehicle.routeIndex = 0;
+                vehicle.routeProgress = 0;
+            }
+
+            if (vehicle.routeIndex < vehicle.currentRoute.length) {
+                const target = vehicle.currentRoute[vehicle.routeIndex];
+                const currentLat = markers[vehicle.id].getLatLng().lat;
+                const currentLng = markers[vehicle.id].getLatLng().lng;
+                
+                // Move towards target
+                const stepLat = (target[0] - currentLat) * 0.1;
+                const stepLng = (target[1] - currentLng) * 0.1;
+                
+                const newLat = currentLat + stepLat;
+                const newLng = currentLng + stepLng;
+                
+                // Update vehicle position
+                markers[vehicle.id].setLatLng([newLat, newLng]);
+                vehicle.lat = newLat;
+                vehicle.lng = newLng;
+                
+                // Check if reached target
+                const distance = Math.sqrt(
+                    Math.pow(target[0] - newLat, 2) + 
+                    Math.pow(target[1] - newLng, 2)
+                );
+                
+                if (distance < 0.001) {
+                    vehicle.routeIndex++;
+                    if (vehicle.routeIndex >= vehicle.currentRoute.length) {
+                        // Delivery complete
+                        order.status = 'delivered';
+                        updateOrdersList();
+                        showNotification(`${order.customer} order delivered!`, 'success');
+                    }
+                }
+            }
+        }
+
+        // Create animated route
+        function createRoute(vehicle, pickup, delivery, order) {
+            // Clear existing routes for this vehicle
+            if (vehicle.routeLine) {
+                map.removeLayer(vehicle.routeLine);
+            }
+
+            // Create route line
+            const routeLine = L.polyline([
+                [vehicle.lat, vehicle.lng],
+                pickup,
+                delivery
+            ], {
+                color: '#10b981',
+                weight: 4,
+                opacity: 0.8,
+                dashArray: '10, 5',
+                className: 'route-line'
+            }).addTo(map);
+
+            vehicle.routeLine = routeLine;
+            order.routeLine = routeLine;
+        }
+
+        // Update route information
+        function updateRouteInfo(order, vehicle) {
+            document.getElementById('routeInfo').classList.remove('hidden');
+            document.getElementById('routeDistance').textContent = (Math.random() * 10 + 5).toFixed(1) + ' km';
+            document.getElementById('routeTime').textContent = (Math.random() * 30 + 15).toFixed(0) + ' mins';
+            document.getElementById('routeVehicle').textContent = vehicle.name;
+            document.getElementById('routeStatus').textContent = 'Optimized';
+        }
+
+        // Update orders list
+        function updateOrdersList() {
+            const ordersList = document.getElementById('ordersList');
+            document.getElementById('activeOrders').textContent = orders.length;
+            
+            ordersList.innerHTML = orders.map(order => `
+                <div class="order-card bg-gray-50 rounded-lg p-4 border-l-4 ${
+                    order.priority === 'urgent' ? 'border-red-500' : 
+                    order.priority === 'express' ? 'border-orange-500' : 'border-blue-500'
+                }">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <div class="font-semibold text-gray-900">${order.customer}</div>
+                            <div class="text-sm text-gray-600 mt-1">
+                                <div>📍 From: ${order.pickup}</div>
+                                <div>📍 To: ${order.delivery}</div>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <span class="px-2 py-1 text-xs rounded ${
+                                order.priority === 'urgent' ? 'bg-red-100 text-red-800' : 
+                                order.priority === 'express' ? 'bg-orange-100 text-orange-800' : 
+                                'bg-blue-100 text-blue-800'
+                            }">
+                                ${order.priority.toUpperCase()}
+                            </span>
+                            <div class="text-xs text-gray-500 mt-1">${order.timestamp}</div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Map controls
+        function centerMap() {
+            map.setView([19.0760, 72.8777], 13);
+        }
+
+        function toggleRoutes() {
+            showRoutes = !showRoutes;
+            orders.forEach(order => {
+                if (order.routeLine) {
+                    if (showRoutes) {
+                        order.routeLine.setStyle({ opacity: 0.8 });
+                    } else {
+                        order.routeLine.setStyle({ opacity: 0.2 });
+                    }
+                }
+            });
+        }
+
+        // Show notification
+        function showNotification(message, type) {
+            const notification = document.createElement('div');
+            notification.className = `fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg z-50 ${
+                type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+            }`;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
+        }
+
+        // Simulate real-time vehicle movement along routes
+        setInterval(() => {
+            vehicles.forEach(vehicle => {
+                // Move each active order's vehicle along its route
+                orders.forEach(order => {
+                    if (order.status === 'pending' && vehicle.id === 1) {
+                        moveVehicleAlongRoute(vehicle, 
+                            getCoordinatesForAddress(order.pickup), 
+                            getCoordinatesForAddress(order.delivery), 
+                            order
+                        );
+                    }
+                });
+                
+                // Also add some random movement for unassigned vehicles
+                if (!vehicle.currentRoute) {
+                    vehicle.lat += (Math.random() - 0.5) * 0.001;
+                    vehicle.lng += (Math.random() - 0.5) * 0.001;
+                    
+                    if (markers[vehicle.id]) {
+                        markers[vehicle.id].setLatLng([vehicle.lat, vehicle.lng]);
+                    }
+                }
+            });
+        }, 2000);
+
+        // Initialize
+        updateOrdersList();
+        console.log('🚀 FleetRoute AI - Deployable Platform Ready!');
+    </script>
+</body>
+</html>

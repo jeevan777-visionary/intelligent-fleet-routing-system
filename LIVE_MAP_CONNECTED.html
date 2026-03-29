@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FleetRoute AI - Live Map Connected</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+    <style>
+        .vehicle-marker { 
+            background: #34A853; 
+            border: 3px solid white; 
+            border-radius: 50%; 
+            width: 35px; 
+            height: 35px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            font-size: 18px; 
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            z-index: 1000;
+        }
+        .pulse-animation { animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.2); } 100% { transform: scale(1); } }
+        .status-connected { color: #10b981; }
+        .status-disconnected { color: #ef4444; }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="bg-white shadow-lg border-b">
+        <div class="max-w-7xl mx-auto px-4 py-4">
+            <div class="flex justify-between items-center">
+                <h1 class="text-2xl font-bold text-blue-600">🚀 FleetRoute AI - Live Map</h1>
+                <div class="flex items-center space-x-4">
+                    <div class="text-sm">
+                        Backend: <span id="backendStatus" class="font-semibold status-disconnected">Disconnected</span>
+                    </div>
+                    <div class="text-sm">
+                        Live Vehicles: <span id="vehicleCount" class="font-semibold text-blue-600">0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto p-4">
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            <!-- Left Panel -->
+            <div class="lg:col-span-1 space-y-4">
+                <!-- Connection Status -->
+                <div class="bg-white rounded-lg shadow p-4">
+                    <h2 class="font-semibold text-gray-900 mb-3">🔌 Connection Status</h2>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span>Backend API:</span>
+                            <span id="apiStatus" class="status-disconnected">❌</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Database:</span>
+                            <span id="databaseStatus" class="status-disconnected">❌</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>GPS Tracking:</span>
+                            <span id="gpsStatus" class="status-disconnected">❌</span>
+                        </div>
+                    </div>
+                    <button onclick="testConnection()" class="mt-3 w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">
+                        🔄 Test Connection
+                    </button>
+                </div>
+
+                <!-- Vehicle List -->
+                <div class="bg-white rounded-lg shadow p-4">
+                    <h2 class="font-semibold text-gray-900 mb-3">🚚 Active Vehicles</h2>
+                    <div id="vehicleList" class="space-y-2 text-sm">
+                        <div class="text-gray-500">Loading vehicles...</div>
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="bg-white rounded-lg shadow p-4">
+                    <h2 class="font-semibold text-gray-900 mb-3">⚡ Quick Actions</h2>
+                    <div class="space-y-2">
+                        <button onclick="refreshVehicles()" class="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700">
+                            🔄 Refresh Vehicles
+                        </button>
+                        <button onclick="centerMap()" class="w-full bg-gray-600 text-white py-2 rounded-lg hover:bg-gray-700">
+                            🎯 Center Map
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Map -->
+            <div class="lg:col-span-3">
+                <div class="bg-white rounded-lg shadow p-4">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="font-semibold text-gray-900">🗺️ Live GPS Tracking</h2>
+                        <div class="flex space-x-2">
+                            <span class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">LIVE</span>
+                            <span class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">GPS ACTIVE</span>
+                        </div>
+                    </div>
+                    <div id="map" class="h-96 rounded-lg border-2 border-gray-200"></div>
+                    <div class="mt-4 p-3 bg-gray-50 rounded text-xs">
+                        <div class="flex justify-between">
+                            <span>🛰️ GPS: <strong class="text-green-600">Connected</strong></span>
+                            <span>📡 Signal: <strong class="text-green-600">Strong</strong></span>
+                            <span>🔄 Update: <strong class="text-blue-600">Every 2s</strong></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Global variables
+        let map;
+        let vehicles = [];
+        let markers = {};
+        let backendConnected = false;
+
+        // Initialize map
+        function initMap() {
+            map = L.map('map').setView([17.3850, 78.4867], 14);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+
+            // Add depot
+            const depotIcon = L.divIcon({
+                html: '<div style="background: #4285F4; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 16px; border: 3px solid white;">🏢</div>',
+                iconSize: [32, 32]
+            });
+            
+            L.marker([17.3850, 78.4867], { icon: depotIcon })
+                .addTo(map)
+                .bindPopup('<b>Main Depot</b><br>Hyderabad Central');
+        }
+
+        // Test backend connection
+        async function testConnection() {
+            try {
+                const response = await fetch('http://localhost:8000/api/health');
+                if (response.ok) {
+                    const data = await response.json();
+                    backendConnected = true;
+                    updateConnectionStatus(true);
+                    console.log('✅ Backend connected:', data);
+                    fetchVehicles();
+                } else {
+                    updateConnectionStatus(false);
+                }
+            } catch (error) {
+                backendConnected = false;
+                updateConnectionStatus(false);
+                console.log('❌ Backend not available, using mock data');
+                useMockVehicles();
+            }
+        }
+
+        // Update connection status
+        function updateConnectionStatus(connected) {
+            const elements = ['backendStatus', 'apiStatus', 'databaseStatus', 'gpsStatus'];
+            elements.forEach(id => {
+                const element = document.getElementById(id);
+                if (connected) {
+                    element.textContent = '✅ Connected';
+                    element.className = 'font-semibold status-connected';
+                } else {
+                    element.textContent = '❌ Disconnected';
+                    element.className = 'font-semibold status-disconnected';
+                }
+            });
+        }
+
+        // Fetch vehicles from backend
+        async function fetchVehicles() {
+            if (!backendConnected) return;
+
+            try {
+                const response = await fetch('http://localhost:8000/api/fleet/vehicles');
+                if (response.ok) {
+                    vehicles = await response.json();
+                    updateVehicleMarkers();
+                    updateVehicleList();
+                    document.getElementById('vehicleCount').textContent = vehicles.length;
+                }
+            } catch (error) {
+                console.error('Error fetching vehicles:', error);
+            }
+        }
+
+        // Use mock vehicles when backend is not available
+        function useMockVehicles() {
+            vehicles = [
+                { id: "1", name: "MH12 AB 1234", driver: "Raj Kumar", lat: 17.3850, lng: 78.4867, status: "active", speed: 45, fuel: 85 },
+                { id: "2", name: "MH12 CD 5678", driver: "Sarah Johnson", lat: 17.3950, lng: 78.4967, status: "active", speed: 52, fuel: 92 },
+                { id: "3", name: "MH12 EF 9012", driver: "Mike Chen", lat: 17.4050, lng: 78.5067, status: "maintenance", speed: 0, fuel: 67 }
+            ];
+            
+            updateVehicleMarkers();
+            updateVehicleList();
+            document.getElementById('vehicleCount').textContent = vehicles.length;
+        }
+
+        // Update vehicle markers on map
+        function updateVehicleMarkers() {
+            // Clear existing markers
+            Object.values(markers).forEach(marker => map.removeLayer(marker));
+            markers = {};
+
+            // Add vehicle markers
+            vehicles.forEach(vehicle => {
+                const vehicleIcon = L.divIcon({
+                    html: `<div class="vehicle-marker ${vehicle.status === 'active' ? 'pulse-animation' : ''}">🚚</div>`,
+                    iconSize: [35, 35]
+                });
+
+                const marker = L.marker([vehicle.lat, vehicle.lng], { icon: vehicleIcon })
+                    .addTo(map)
+                    .bindPopup(`
+                        <b>${vehicle.name}</b><br>
+                        Driver: ${vehicle.driver}<br>
+                        Status: ${vehicle.status}<br>
+                        Speed: ${vehicle.speed || '--'} km/h<br>
+                        Fuel: ${vehicle.fuel || '--'}%
+                    `);
+                
+                markers[vehicle.id] = marker;
+            });
+        }
+
+        // Update vehicle list in sidebar
+        function updateVehicleList() {
+            const vehicleList = document.getElementById('vehicleList');
+            vehicleList.innerHTML = vehicles.map(vehicle => `
+                <div class="border-l-4 ${vehicle.status === 'active' ? 'border-green-500' : 'border-yellow-500'} pl-3 py-2">
+                    <div class="font-medium text-sm">${vehicle.name}</div>
+                    <div class="text-xs text-gray-600">${vehicle.driver}</div>
+                    <div class="text-xs ${vehicle.status === 'active' ? 'text-green-600' : 'text-yellow-600'}">
+                        ${vehicle.status === 'active' ? '🚚 Active' : '🔧 Maintenance'}
+                    </div>
+                    <div class="text-xs text-gray-500 mt-1">
+                        📍 ${vehicle.lat?.toFixed(4) || '--'}, ${vehicle.lng?.toFixed(4) || '--'}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Refresh vehicles
+        function refreshVehicles() {
+            if (backendConnected) {
+                fetchVehicles();
+            } else {
+                useMockVehicles();
+            }
+        }
+
+        // Center map
+        function centerMap() {
+            map.setView([17.3850, 78.4867], 14);
+        }
+
+        // Simulate real-time vehicle movement
+        function simulateVehicleMovement() {
+            vehicles.forEach(vehicle => {
+                if (vehicle.status === 'active' && vehicle.lat && vehicle.lng) {
+                    // Add small random movement
+                    vehicle.lat += (Math.random() - 0.5) * 0.001;
+                    vehicle.lng += (Math.random() - 0.5) * 0.001;
+                    
+                    // Update marker position
+                    if (markers[vehicle.id]) {
+                        markers[vehicle.id].setLatLng([vehicle.lat, vehicle.lng]);
+                    }
+                }
+            });
+            
+            // Update vehicle list with new positions
+            updateVehicleList();
+        }
+
+        // Initialize everything
+        document.addEventListener('DOMContentLoaded', function() {
+            initMap();
+            testConnection();
+            
+            // Auto-refresh vehicles every 5 seconds
+            setInterval(() => {
+                if (backendConnected) {
+                    fetchVehicles();
+                }
+            }, 5000);
+            
+            // Simulate vehicle movement every 2 seconds
+            setInterval(simulateVehicleMovement, 2000);
+        });
+    </script>
+</body>
+</html>

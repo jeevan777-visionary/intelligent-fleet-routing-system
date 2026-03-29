@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FleetRoute AI - Connected Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+    <style>
+        .vehicle-marker { 
+            background: #34A853; 
+            border: 3px solid white; 
+            border-radius: 50%; 
+            width: 35px; 
+            height: 35px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            font-size: 18px; 
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            z-index: 1000;
+        }
+        .pulse-animation { animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.2); } 100% { transform: scale(1); } }
+        .status-connected { color: #10b981; }
+        .status-disconnected { color: #ef4444; }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="bg-white shadow-lg border-b">
+        <div class="max-w-7xl mx-auto px-4 py-4">
+            <div class="flex justify-between items-center">
+                <h1 class="text-2xl font-bold text-blue-600">🚀 FleetRoute AI - Connected Platform</h1>
+                <div class="flex items-center space-x-4">
+                    <div class="text-sm">
+                        Backend: <span id="backendStatus" class="font-semibold status-disconnected">Disconnected</span>
+                    </div>
+                    <div class="text-sm">
+                        Database: <span id="dbStatus" class="font-semibold status-disconnected">Disconnected</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto p-4">
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            <!-- Left Panel -->
+            <div class="lg:col-span-1 space-y-4">
+                <!-- Connection Status -->
+                <div class="bg-white rounded-lg shadow p-4">
+                    <h2 class="font-semibold text-gray-900 mb-3">🔌 Connection Status</h2>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span>Backend API:</span>
+                            <span id="apiStatus" class="status-disconnected">❌</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Database:</span>
+                            <span id="databaseStatus" class="status-disconnected">❌</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>GPS Service:</span>
+                            <span id="gpsStatus" class="status-disconnected">❌</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Order Form -->
+                <div class="bg-white rounded-lg shadow p-4">
+                    <h2 class="font-semibold text-gray-900 mb-3">📦 Create Order</h2>
+                    <form id="orderForm" class="space-y-3">
+                        <input type="text" id="customerName" placeholder="Customer Name" required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        <input type="text" id="pickupAddress" placeholder="Pickup (Hyderabad)" required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        <input type="text" id="deliveryAddress" placeholder="Delivery (Hyderabad)" required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                        <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">
+                            🚚 Create Order
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Live Data -->
+                <div class="bg-white rounded-lg shadow p-4">
+                    <h2 class="font-semibold text-gray-900 mb-3">📊 Live Data</h2>
+                    <div id="liveData" class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span>Active Vehicles:</span>
+                            <strong id="vehicleCount" class="text-blue-600">--</strong>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Active Orders:</span>
+                            <strong id="orderCount" class="text-green-600">--</strong>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Completed:</span>
+                            <strong id="completedCount" class="text-gray-600">--</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Map -->
+            <div class="lg:col-span-3">
+                <div class="bg-white rounded-lg shadow p-4">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="font-semibold text-gray-900">🗺️ Live GPS Tracking</h2>
+                        <div class="flex space-x-2">
+                            <button onclick="testBackend()" class="bg-gray-100 px-3 py-1 rounded text-sm">Test Backend</button>
+                            <button onclick="centerMap()" class="bg-gray-100 px-3 py-1 rounded text-sm">Center Map</button>
+                        </div>
+                    </div>
+                    <div id="map" class="h-96 rounded-lg border-2 border-gray-200"></div>
+                    <div class="mt-4 p-3 bg-gray-50 rounded text-xs">
+                        <div id="connectionInfo" class="flex justify-between">
+                            <span>🛰️ API: <strong id="apiEndpoint" class="text-gray-600">http://localhost:8000</strong></span>
+                            <span>📊 Last Update: <strong id="lastUpdate" class="text-gray-600">Never</strong></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Global variables
+        let map;
+        let vehicles = [];
+        let orders = [];
+        let markers = {};
+        let backendConnected = false;
+
+        // Initialize map
+        function initMap() {
+            map = L.map('map').setView([17.3850, 78.4867], 14);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+
+            // Add depot
+            const depotIcon = L.divIcon({
+                html: '<div style="background: #4285F4; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 16px; border: 3px solid white;">🏢</div>',
+                iconSize: [32, 32]
+            });
+            
+            L.marker([17.3850, 78.4867], { icon: depotIcon })
+                .addTo(map)
+                .bindPopup('<b>Main Depot</b><br>Hyderabad Central');
+        }
+
+        // Test backend connection
+        async function testBackend() {
+            try {
+                const response = await fetch('http://localhost:8000/api/health');
+                if (response.ok) {
+                    const data = await response.json();
+                    backendConnected = true;
+                    updateConnectionStatus(true);
+                    console.log('✅ Backend connected:', data);
+                    fetchLiveData();
+                } else {
+                    updateConnectionStatus(false);
+                }
+            } catch (error) {
+                backendConnected = false;
+                updateConnectionStatus(false);
+                console.log('❌ Backend not available, using mock data');
+                useMockData();
+            }
+        }
+
+        // Update connection status
+        function updateConnectionStatus(connected) {
+            const elements = ['backendStatus', 'apiStatus', 'databaseStatus', 'gpsStatus'];
+            elements.forEach(id => {
+                const element = document.getElementById(id);
+                if (connected) {
+                    element.textContent = '✅ Connected';
+                    element.className = 'font-semibold status-connected';
+                } else {
+                    element.textContent = '❌ Disconnected';
+                    element.className = 'font-semibold status-disconnected';
+                }
+            });
+        }
+
+        // Fetch live data from backend
+        async function fetchLiveData() {
+            if (!backendConnected) return;
+
+            try {
+                // Fetch vehicles
+                const vehiclesResponse = await fetch('http://localhost:8000/api/fleet/vehicles');
+                if (vehiclesResponse.ok) {
+                    vehicles = await vehiclesResponse.json();
+                    updateVehicleMarkers();
+                    document.getElementById('vehicleCount').textContent = vehicles.length;
+                }
+
+                // Fetch orders
+                const ordersResponse = await fetch('http://localhost:8000/api/orders');
+                if (ordersResponse.ok) {
+                    orders = await ordersResponse.json();
+                    document.getElementById('orderCount').textContent = orders.filter(o => o.status === 'pending').length;
+                    document.getElementById('completedCount').textContent = orders.filter(o => o.status === 'delivered').length;
+                }
+
+                // Fetch metrics
+                const metricsResponse = await fetch('http://localhost:8000/api/dashboard/metrics');
+                if (metricsResponse.ok) {
+                    const metrics = await metricsResponse.json();
+                    console.log('📊 Dashboard metrics:', metrics);
+                }
+
+                // Update last update time
+                document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+            } catch (error) {
+                console.error('Error fetching live data:', error);
+            }
+        }
+
+        // Use mock data when backend is not available
+        function useMockData() {
+            vehicles = [
+                { id: "1", name: "MH12 AB 1234", driver: "Raj Kumar", lat: 17.3850, lng: 78.4867, status: "active" },
+                { id: "2", name: "MH12 CD 5678", driver: "Sarah Johnson", lat: 17.3950, lng: 78.4967, status: "active" },
+                { id: "3", name: "MH12 EF 9012", driver: "Mike Chen", lat: 17.4050, lng: 78.5067, status: "active" }
+            ];
+            
+            updateVehicleMarkers();
+            document.getElementById('vehicleCount').textContent = vehicles.length;
+            document.getElementById('orderCount').textContent = '0';
+            document.getElementById('completedCount').textContent = '0';
+        }
+
+        // Update vehicle markers
+        function updateVehicleMarkers() {
+            // Clear existing markers
+            Object.values(markers).forEach(marker => map.removeLayer(marker));
+            markers = {};
+
+            // Add vehicle markers
+            vehicles.forEach(vehicle => {
+                const vehicleIcon = L.divIcon({
+                    html: '<div class="vehicle-marker pulse-animation">🚚</div>',
+                    iconSize: [35, 35]
+                });
+
+                const marker = L.marker([vehicle.lat, vehicle.lng], { icon: vehicleIcon })
+                    .addTo(map)
+                    .bindPopup(`<b>${vehicle.name}</b><br>${vehicle.driver}<br>Status: ${vehicle.status}`);
+                
+                markers[vehicle.id] = marker;
+            });
+        }
+
+        // Create order
+        document.getElementById('orderForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const orderData = {
+                customer: document.getElementById('customerName').value,
+                pickup: document.getElementById('pickupAddress').value,
+                delivery: document.getElementById('deliveryAddress').value
+            };
+
+            try {
+                if (backendConnected) {
+                    // Send to backend
+                    const response = await fetch('http://localhost:8000/api/orders', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(orderData)
+                    });
+
+                    if (response.ok) {
+                        const newOrder = await response.json();
+                        orders.push(newOrder);
+                        console.log('✅ Order created in backend:', newOrder);
+                    }
+                } else {
+                    // Create order locally
+                    const newOrder = { ...orderData, id: Date.now(), status: 'pending' };
+                    orders.push(newOrder);
+                    console.log('✅ Order created locally:', newOrder);
+                }
+
+                // Create GPS route
+                createGPSRoute(orderData);
+                
+                // Update counts
+                document.getElementById('orderCount').textContent = orders.filter(o => o.status === 'pending').length;
+                
+                // Clear form
+                document.getElementById('orderForm').reset();
+                
+                alert('✅ Order created successfully! GPS route calculated.');
+            } catch (error) {
+                console.error('Error creating order:', error);
+                alert('❌ Error creating order');
+            }
+        });
+
+        // Create GPS route
+        function createGPSRoute(orderData) {
+            const pickupCoords = getHyderabadCoords(orderData.pickup);
+            const deliveryCoords = getHyderabadCoords(orderData.delivery);
+
+            // Add pickup marker
+            const pickupIcon = L.divIcon({
+                html: '<div style="background: #FBBC04; color: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-size: 16px; border: 3px solid white;">📍</div>',
+                iconSize: [30, 30]
+            });
+
+            const deliveryIcon = L.divIcon({
+                html: '<div style="background: #EA4335; color: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-size: 16px; border: 3px solid white;">🏠</div>',
+                iconSize: [30, 30]
+            });
+
+            L.marker(pickupCoords, { icon: pickupIcon })
+                .addTo(map)
+                .bindPopup(`<b>Pickup</b><br>${orderData.pickup}<br>${orderData.customer}`);
+
+            L.marker(deliveryCoords, { icon: deliveryIcon })
+                .addTo(map)
+                .bindPopup(`<b>Delivery</b><br>${orderData.delivery}<br>${orderData.customer}`);
+
+            // Create route if routing machine is available
+            if (L.Routing && vehicles.length > 0) {
+                const vehicle = vehicles[0];
+                L.Routing.control({
+                    waypoints: [
+                        L.latLng(vehicle.lat, vehicle.lng),
+                        L.latLng(pickupCoords[0], pickupCoords[1]),
+                        L.latLng(deliveryCoords[0], deliveryCoords[1])
+                    ],
+                    routeWhileDragging: false,
+                    addWaypoints: false,
+                    createMarker: () => null,
+                    lineOptions: { styles: [{ color: '#4285F4', weight: 8, opacity: 0.8 }] }
+                }).addTo(map);
+
+                // Center map on route
+                const bounds = L.latLngBounds([pickupCoords, deliveryCoords]);
+                map.fitBounds(bounds, { padding: [50, 50] });
+            }
+        }
+
+        // Get Hyderabad coordinates
+        function getHyderabadCoords(address) {
+            const coords = {
+                'nalla narasimha reddy': [17.3850, 78.4867],
+                'vanasthalipuram': [17.4050, 78.5067],
+                'hyderabad': [17.3850, 78.4867]
+            };
+            
+            for (let place in coords) {
+                if (address.toLowerCase().includes(place)) {
+                    return coords[place];
+                }
+            }
+            
+            return [17.3850 + (Math.random() - 0.5) * 0.05, 78.4867 + (Math.random() - 0.5) * 0.05];
+        }
+
+        // Center map
+        function centerMap() {
+            map.setView([17.3850, 78.4867], 14);
+        }
+
+        // Initialize everything
+        document.addEventListener('DOMContentLoaded', function() {
+            initMap();
+            testBackend();
+            
+            // Auto-refresh data every 5 seconds
+            setInterval(() => {
+                if (backendConnected) {
+                    fetchLiveData();
+                }
+            }, 5000);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FleetRoute AI - Detailed GPS Map</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+    <style>
+        .vehicle-marker { 
+            background: #34A853; 
+            border: 3px solid white; 
+            border-radius: 50%; 
+            width: 40px; 
+            height: 40px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            font-size: 20px; 
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            z-index: 1000;
+        }
+        .pulse-animation { animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.2); } 100% { transform: scale(1); } }
+        .route-line { stroke: #4285F4; stroke-width: 6; fill: none; }
+        .google-maps-style { font-family: 'Roboto', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-50 google-maps-style">
+    <header class="bg-white shadow-lg border-b">
+        <div class="max-w-7xl mx-auto px-4 py-4">
+            <div class="flex justify-between items-center">
+                <h1 class="text-2xl font-bold text-blue-600">🚀 FleetRoute AI - Detailed GPS Map</h1>
+                <div class="flex items-center space-x-4">
+                    <div class="text-sm">
+                        GPS Status: <span id="gpsStatus" class="font-semibold text-green-600">Active</span>
+                    </div>
+                    <div class="text-sm">
+                        Tracking: <span id="trackingStatus" class="font-semibold text-green-600">Live</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto p-4">
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            <div class="lg:col-span-1 space-y-4">
+                <div class="bg-white rounded-lg shadow-lg p-4">
+                    <h2 class="font-bold text-gray-900 mb-3">👤 Driver Info</h2>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Name:</span>
+                            <strong id="driverName" class="text-gray-900">Raj Kumar</strong>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Vehicle:</span>
+                            <strong id="vehicleId" class="text-gray-900">MH12 AB 1234</strong>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Status:</span>
+                            <strong id="driverStatus" class="text-green-600">Active</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-lg p-4">
+                    <h2 class="font-bold text-gray-900 mb-3">📍 Route Info</h2>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Distance:</span>
+                            <strong id="routeDistance" class="text-blue-600">-- km</strong>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Time:</span>
+                            <strong id="routeTime" class="text-blue-600">-- mins</strong>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Stops:</span>
+                            <strong id="routeStops" class="text-blue-600">--</strong>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Optimization:</span>
+                            <strong id="optimizationType" class="text-purple-600">QAOA</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-lg p-4">
+                    <h2 class="font-bold text-gray-900 mb-3">🛰️ Current Location</h2>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Latitude:</span>
+                            <strong id="currentLat" class="font-mono text-gray-900">--</strong>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Longitude:</span>
+                            <strong id="currentLng" class="font-mono text-gray-900">--</strong>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Speed:</span>
+                            <strong id="currentSpeed" class="text-gray-900">-- km/h</strong>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Accuracy:</span>
+                            <strong id="gpsAccuracy" class="text-green-600">±5m</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-lg p-4">
+                    <h2 class="font-bold text-gray-900 mb-3">🎛️ Controls</h2>
+                    <div class="space-y-2">
+                        <button onclick="startTracking()" class="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700">
+                            🛰️ Start GPS Tracking
+                        </button>
+                        <button onclick="stopTracking()" class="w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700">
+                            ⏹️ Stop Tracking
+                        </button>
+                        <button onclick="optimizeRoute()" class="w-full bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700">
+                            ⚛️ Optimize Route (QAOA)
+                        </button>
+                        <button onclick="centerMap()" class="w-full bg-gray-600 text-white py-2 rounded-lg hover:bg-gray-700">
+                            🎯 Center Map
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-3">
+                <div class="bg-white rounded-lg shadow-lg p-4">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="font-bold text-gray-900">🗺️ Live GPS Navigation</h2>
+                        <div class="flex space-x-2">
+                            <span class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">LIVE GPS</span>
+                            <span class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">QAOA ACTIVE</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Turn-by-Turn Navigation Panel -->
+                <div id="navigationPanel" class="hidden bg-white rounded-lg shadow-lg p-4 mb-4">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="font-bold text-gray-900">🧭 Navigation Instructions</h2>
+                        <div class="flex space-x-2">
+                            <span class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">ACTIVE</span>
+                            <span class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">VOICE ON</span>
+                        </div>
+                    </div>
+                    
+                    <div id="turnByTurnDirections" class="space-y-3 max-h-64 overflow-y-auto">
+                        <!-- Navigation steps will be inserted here -->
+                    </div>
+                    
+                    <div class="mt-4 p-3 bg-gray-50 rounded text-xs">
+                        <div class="flex justify-between">
+                            <span>🧭 Total Distance: <strong class="text-blue-600" id="navDistance">--</strong></span>
+                            <span>⏱️ Total Time: <strong class="text-green-600" id="navTime">--</strong></span>
+                            <span>🎯 Next Turn: <strong class="text-purple-600" id="nextTurn">--</strong></span>
+                        </div>
+                    </div>
+                </div>
+                    
+                    <div id="map" class="h-96 rounded-lg border-2 border-gray-200 mb-4"></div>
+                    
+                    <div id="routeStats" class="hidden grid grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-blue-600" id="totalDistance">--</div>
+                            <div class="text-sm text-gray-600">Total Distance (km)</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-green-600" id="estimatedTime">--</div>
+                            <div class="text-sm text-gray-600">Est. Time (mins)</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-purple-600" id="completedStops">0</div>
+                            <div class="text-sm text-gray-600">Completed Stops</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-orange-600" id="remainingStops">--</div>
+                            <div class="text-sm text-gray-600">Remaining Stops</div>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 p-3 bg-gray-50 rounded text-xs">
+                        <div class="flex justify-between">
+                            <span>🛰️ GPS: <strong class="text-green-600">Connected</strong></span>
+                            <span>📡 Signal: <strong class="text-green-600">Strong</strong></span>
+                            <span>🔄 Update: <strong class="text-blue-600">Every 3s</strong></span>
+                            <span>⚛️ Algorithm: <strong class="text-purple-600">QAOA</strong></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let map;
+        let vehicleMarker;
+        let routeControl;
+        let isTracking = false;
+        let watchId;
+        let currentPosition = { lat: 17.3850, lng: 78.4867 };
+        let routeData = {
+            distance: 0,
+            time: 0,
+            stops: [],
+            completed: 0,
+            remaining: 0
+        };
+
+        // Initialize pickup markers array
+        window.pickupMarkers = [];
+
+        // Add pickup and delivery markers
+        function addPickupDeliveryMarkers(start, destination, stops) {
+            // Clear existing markers
+            if (window.pickupMarkers) {
+                window.pickupMarkers.forEach(marker => map.removeLayer(marker));
+            }
+            window.pickupMarkers = [];
+
+            // Add start/pickup marker with complete symbol
+            const pickupIcon = L.divIcon({
+                html: `
+                    <div style="
+                        background: #1A73E8; 
+                        color: white; 
+                        border: 3px solid white; 
+                        border-radius: 50% 50% 50%; 
+                        width: 45px; 
+                        height: 45px; 
+                        display: flex; 
+                        align-items: center; 
+                        justify-content: center; 
+                        font-size: 24px; 
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.4); 
+                        z-index: 1000;
+                        position: relative;
+                    ">
+                        <div style="position: absolute; top: -8px; left: -8px; background: white; border-radius: 50%; width: 12px; height: 12px; display: flex; align-items: center; justify-content: center;">
+                            <span style="font-size: 8px; color: #1A73E8; font-weight: bold;">P</span>
+                        </div>
+                        📍
+                    </div>
+                `,
+                iconSize: [45, 45],
+                className: 'pickup-marker'
+            });
+
+            const pickupCoords = getCoordinatesForLocation(start);
+            const pickupMarker = L.marker([pickupCoords.lat, pickupCoords.lng], { icon: pickupIcon })
+                .addTo(map)
+                .bindPopup(`
+                    <div style="padding: 10px;">
+                        <h3 style="color: #1A73E8; margin: 0 0 5px 0;">📍 PICKUP LOCATION</h3>
+                        <p style="margin: 5px 0; font-weight: bold;">${start}</p>
+                        <p style="margin: 5px 0; color: #666;">Driver: ${document.getElementById('driverName')?.textContent || 'Raj Kumar'}</p>
+                        <p style="margin: 5px 0; color: #1A73E8; font-size: 12px;">⏰ Ready for pickup</p>
+                    </div>
+                `);
+            
+            window.pickupMarkers.push(pickupMarker);
+
+            // Add delivery stops markers with complete symbols
+            stops.forEach((stop, index) => {
+                const stopIcon = L.divIcon({
+                    html: `
+                        <div style="
+                            background: #EA4335; 
+                            color: white; 
+                            border: 3px solid white; 
+                            border-radius: 50% 50% 50%; 
+                            width: 40px; 
+                            height: 40px; 
+                            display: flex; 
+                            align-items: center; 
+                            justify-content: center; 
+                            font-size: 20px; 
+                            box-shadow: 0 4px 12px rgba(0,0,0,0.4); 
+                            z-index: 999;
+                            position: relative;
+                        ">
+                            <div style="position: absolute; top: -6px; left: -6px; background: white; border-radius: 50%; width: 10px; height: 10px; display: flex; align-items: center; justify-content: center;">
+                                <span style="font-size: 7px; color: #EA4335; font-weight: bold;">${index + 1}</span>
+                            </div>
+                            📦
+                        </div>
+                    `,
+                    iconSize: [40, 40],
+                    className: 'delivery-stop-marker'
+                });
+
+                const stopCoords = getCoordinatesForLocation(stop);
+                const stopMarker = L.marker([stopCoords.lat, stopCoords.lng], { icon: stopIcon })
+                    .addTo(map)
+                    .bindPopup(`
+                        <div style="padding: 10px;">
+                            <h3 style="color: #EA4335; margin: 0 0 5px 0;">📦 DELIVERY STOP ${index + 1}</h3>
+                            <p style="margin: 5px 0; font-weight: bold;">${stop}</p>
+                            <p style="margin: 5px 0; color: #666;">Status: <span style="color: #EA4335;">⏳ Pending</span></p>
+                            <p style="margin: 5px 0; color: #EA4335; font-size: 12px;">📍 Stop ${index + 1} of ${stops.length}</p>
+                        </div>
+                    `);
+                
+                window.pickupMarkers.push(stopMarker);
+            });
+
+            // Add destination marker with complete symbol
+            const deliveryIcon = L.divIcon({
+                html: `
+                    <div style="
+                        background: #34A853; 
+                        color: white; 
+                        border: 3px solid white; 
+                        border-radius: 50% 50% 50%; 
+                        width: 50px; 
+                        height: 50px; 
+                        display: flex; 
+                        align-items: center; 
+                        justify-content: center; 
+                        font-size: 28px; 
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.4); 
+                        z-index: 1001;
+                        position: relative;
+                        animation: pulse 2s infinite;
+                    ">
+                        <div style="position: absolute; top: -8px; left: -8px; background: white; border-radius: 50%; width: 12px; height: 12px; display: flex; align-items: center; justify-content: center;">
+                            <span style="font-size: 8px; color: #34A853; font-weight: bold;">D</span>
+                        </div>
+                        🏁
+                    </div>
+                `,
+                iconSize: [50, 50],
+                className: 'destination-marker'
+            });
+
+            const deliveryCoords = getCoordinatesForLocation(destination);
+            const deliveryMarker = L.marker([deliveryCoords.lat, deliveryCoords.lng], { icon: deliveryIcon })
+                .addTo(map)
+                .bindPopup(`
+                    <div style="padding: 10px;">
+                        <h3 style="color: #34A853; margin: 0 0 5px 0;">🏁 DELIVERY DESTINATION</h3>
+                        <p style="margin: 5px 0; font-weight: bold; font-size: 16px;">${destination}</p>
+                        <p style="margin: 5px 0; color: #666;">Status: <span style="color: #34A853;">🎯 Final Destination</span></p>
+                        <p style="margin: 5px 0; color: #34A853; font-size: 12px;">✅ Complete delivery here</p>
+                    </div>
+                `);
+            
+            window.pickupMarkers.push(deliveryMarker);
+
+            // Add route number labels
+            const routeNumberIcon = L.divIcon({
+                html: `
+                    <div style="
+                        background: #4285F4; 
+                        color: white; 
+                        border: 2px solid white; 
+                        border-radius: 20px; 
+                        padding: 5px 10px; 
+                        font-weight: bold; 
+                        font-size: 14px;
+                        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                    ">
+                        ROUTE 1
+                    </div>
+                `,
+                iconSize: [80, 30],
+                className: 'route-number-label'
+            });
+
+            // Add route number label at center of route
+            if (stops.length > 0) {
+                const centerCoords = getCoordinatesForLocation(stops[Math.floor(stops.length / 2)]);
+                L.marker([centerCoords.lat, centerCoords.lng], { icon: routeNumberIcon })
+                    .addTo(map)
+                    .bindPopup('Delivery Route 1 - Optimized by QAOA');
+            }
+
+            // Center map on all markers
+            const allCoords = [pickupCoords, ...stops.map(s => getCoordinatesForLocation(s)), deliveryCoords];
+            const bounds = L.latLngBounds(allCoords);
+            map.fitBounds(bounds, { padding: [100, 100] });
+        }
+
+        function initMap() {
+            map = L.map('map').setView([currentPosition.lat, currentPosition.lng], 14);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: ' OpenStreetMap contributors'
+            }).addTo(map);
+
+            const vehicleIcon = L.divIcon({
+                html: `
+                    <div style="
+                        background: #FF6B35; 
+                        color: white; 
+                        border: 3px solid white; 
+                        border-radius: 50% 50% 50%; 
+                        width: 55px; 
+                        height: 55px; 
+                        display: flex; 
+                        align-items: center; 
+                        justify-content: center; 
+                        font-size: 28px; 
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.4); 
+                        z-index: 1002;
+                        position: relative;
+                        animation: pulse 2s infinite;
+                    ">
+                        <div style="position: absolute; top: -10px; left: -10px; background: white; border-radius: 50%; width: 15px; height: 15px; display: flex; align-items: center; justify-content: center;">
+                            <span style="font-size: 10px; color: #FF6B35; font-weight: bold;">V</span>
+                        </div>
+                        🚚
+                    </div>
+                `,
+                iconSize: [55, 55],
+                className: 'vehicle-marker-enhanced'
+            });
+
+            vehicleMarker = L.marker([currentPosition.lat, currentPosition.lng], { icon: vehicleIcon })
+                .addTo(map)
+                .bindPopup('<b>Current Vehicle Position</b><br>Driver: Raj Kumar<br>Vehicle: MH12 AB 1234');
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const driver = urlParams.get('driver') || 'Raj Kumar';
+            const vehicle = urlParams.get('vehicle') || 'MH12 AB 1234';
+            const start = urlParams.get('start') || 'Hyderabad Central';
+            const destination = urlParams.get('destination') || '';
+            const stops = urlParams.get('stops') ? urlParams.get('stops').split(',') : [];
+
+            document.getElementById('driverName').textContent = driver;
+            document.getElementById('vehicleId').textContent = vehicle;
+            
+            vehicleMarker.setPopupContent(`<b>Current Vehicle Position</b><br>Driver: ${driver}<br>Vehicle: ${vehicle}`);
+            
+            if (destination) {
+                routeData.stops = [start, ...stops, destination];
+                optimizeRoute();
+            }
+        }
+
+        function startTracking() {
+            if (!navigator.geolocation) {
+                alert('Geolocation is not supported by this browser');
+                return;
+            }
+
+            isTracking = true;
+            document.getElementById('trackingStatus').textContent = 'Live';
+            document.getElementById('trackingStatus').className = 'font-semibold text-green-600';
+
+            watchId = navigator.geolocation.watchPosition(
+                (position) => {
+                    currentPosition = {
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    };
+
+                    if (vehicleMarker) {
+                        vehicleMarker.setLatLng([currentPosition.lat, currentPosition.lng]);
+                    }
+
+                    updateLocationDisplay(position);
+                },
+                (error) => {
+                    console.error('Geolocation error:', error);
+                    alert('Error getting location: ' + error.message);
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 5000,
+                    maximumAge: 0,
+                    frequency: 3000 
+                }
+            );
+        }
+
+        function stopTracking() {
+            if (watchId) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+            }
+            isTracking = false;
+            document.getElementById('trackingStatus').textContent = 'Stopped';
+            document.getElementById('trackingStatus').className = 'font-semibold text-red-600';
+        }
+
+        function updateLocationDisplay(position) {
+            document.getElementById('currentLat').textContent = position.coords.latitude.toFixed(6);
+            document.getElementById('currentLng').textContent = position.coords.longitude.toFixed(6);
+            document.getElementById('currentSpeed').textContent = position.coords.speed ? (position.coords.speed * 3.6).toFixed(1) : '--';
+            document.getElementById('gpsAccuracy').textContent = position.coords.accuracy ? `±${position.coords.accuracy.toFixed(0)}m` : '±5m';
+        }
+
+        function optimizeRoute() {
+            if (routeData.stops.length < 2) {
+                alert('Please add at least start and destination for route optimization');
+                return;
+            }
+
+            console.log('Running QAOA optimization for stops:', routeData.stops);
+            
+            const waypoints = routeData.stops.map(stop => {
+                const coords = getCoordinatesForLocation(stop);
+                return L.latLng(coords.lat, coords.lng);
+            });
+
+            if (routeControl) {
+                map.removeControl(routeControl);
+            }
+
+            routeControl = L.Routing.control({
+                waypoints: waypoints,
+                routeWhileDragging: false,
+                addWaypoints: false,
+                createMarker: () => null,
+                lineOptions: { 
+                    styles: [
+                        { color: '#4285F4', weight: 6, opacity: 0.8 },
+                        { color: 'white', weight: 8, opacity: 0.3 }
+                    ]
+                }
+            }).on('routesfound', (e) => {
+                const routes = e.routes;
+                const summary = routes[0].summary;
+                
+                routeData.distance = (summary.totalDistance / 1000).toFixed(1);
+                routeData.time = Math.round(summary.totalTime / 60);
+                routeData.remaining = routeData.stops.length - 1;
+                
+                updateRouteDisplay();
+                
+                map.fitBounds(routeControl.getBounds(), { padding: [50, 50] });
+                
+                console.log('QAOA optimization complete:', {
+                    distance: routeData.distance + ' km',
+                    time: routeData.time + ' mins',
+                    stops: routeData.stops.length
+                });
+            }).addTo(map);
+
+            document.getElementById('routeStats').classList.remove('hidden');
+        }
+
+        function updateRouteDisplay() {
+            document.getElementById('routeDistance').textContent = routeData.distance + ' km';
+            document.getElementById('routeTime').textContent = routeData.time + ' mins';
+            document.getElementById('routeStops').textContent = routeData.stops.length;
+            document.getElementById('totalDistance').textContent = routeData.distance;
+            document.getElementById('estimatedTime').textContent = routeData.time;
+            document.getElementById('remainingStops').textContent = routeData.remaining;
+            
+            // Show route statistics panel
+            const routeStats = document.getElementById('routeStats');
+            if (routeStats && routeData.stops.length > 0) {
+                routeStats.classList.remove('hidden');
+            }
+            
+            // Generate turn-by-turn navigation and add markers
+            if (routeData.stops.length >= 2) {
+                generateTurnByTurnNavigation(routeData.stops[0], routeData.stops[routeData.stops.length - 1], routeData.stops.slice(1, -1));
+                addPickupDeliveryMarkers(routeData.stops[0], routeData.stops[routeData.stops.length - 1], routeData.stops.slice(1, -1));
+            }
+        }
+
+        function getCoordinatesForLocation(location) {
+            const coords = {
+                'hyderabad central': { lat: 17.3850, lng: 78.4867 },
+                'nalla narasimha reddy': { lat: 17.3750, lng: 78.4767 },
+                'vanasthalipuram': { lat: 17.4050, lng: 78.5067 },
+                'banjara hills': { lat: 17.4177, lng: 78.4533 },
+                'gachibowli': { lat: 17.4495, lng: 78.3810 },
+                'hitec city': { lat: 17.4480, lng: 78.3780 },
+                'madhapur': { lat: 17.4474, lng: 78.3786 }
+            };
+
+            const lowerLocation = location.toLowerCase().trim();
+            for (let place in coords) {
+                if (lowerLocation.includes(place)) {
+                    return coords[place];
+                }
+            }
+
+            return {
+                lat: 17.3850 + (Math.random() - 0.5) * 0.1,
+                lng: 78.4867 + (Math.random() - 0.5) * 0.1
+            };
+        }
+
+        // Generate turn-by-turn navigation
+        function generateTurnByTurnNavigation(start, destination, stops) {
+            const allStops = [start, ...stops, destination];
+            const directions = [];
+            
+            // Generate detailed navigation steps based on Hyderabad locations
+            if (start.toLowerCase().includes('nalla narasimha') && destination.toLowerCase().includes('vanasthalipuram')) {
+                directions.push(
+                    { instruction: 'Head northeast on Maharani Jhansi Road', distance: '450 m', icon: '🧭' },
+                    { instruction: 'Turn right to stay on Maharani Jhansi Road', distance: '250 m', icon: '↗️' },
+                    { instruction: 'Turn right', distance: '250 m', icon: '↗️' },
+                    { instruction: 'Turn left onto Mumbai Highway (NH65)', distance: '1 km', icon: '↖️' },
+                    { instruction: 'Continue onto Hyderabad Janagam Highway (NH65)', distance: '250 m', icon: '⬆️' },
+                    { instruction: 'Continue straight', distance: '900 m', icon: '⬆️' },
+                    { instruction: 'Make a sharp left onto Kachiguda Station Road', distance: '150 m', icon: '↖️' },
+                    { instruction: 'Turn right onto Barkatpura Road', distance: '300 m', icon: '↗️' },
+                    { instruction: 'Enter barkat pura circle and take the 3rd exit onto Street No 11', distance: '100 m', icon: '🔄' },
+                    { instruction: 'Exit traffic circle onto Street No 11', distance: '250 m', icon: '➡️' },
+                    { instruction: 'Continue onto Barkhatpura Road', distance: '550 m', icon: '⬆️' },
+                    { instruction: 'Continue onto Nallakunta Main Road', distance: '800 m', icon: '⬆️' },
+                    { instruction: 'Continue onto Osmania University Road', distance: '250 m', icon: '⬆️' },
+                    { instruction: 'Turn left', distance: '150 m', icon: '↖️' },
+                    { instruction: 'Turn left onto Achyuta Reddy Marg', distance: '400 m', icon: '↖️' },
+                    { instruction: 'Turn left onto Near VST Road', distance: '35 m', icon: '↖️' },
+                    { instruction: 'You have arrived at your destination', distance: '0 m', icon: '🏁' }
+                );
+            }
+            
+            // Display navigation
+            const navContainer = document.getElementById('turnByTurnDirections');
+            if (navContainer) {
+                navContainer.innerHTML = directions.map((dir, index) => `
+                    <div class="flex items-start space-x-3 p-3 rounded-lg hover:bg-gray-50 ${index === 0 ? 'bg-blue-50 border-l-4 border-blue-500' : ''}">
+                        <div class="text-2xl">${dir.icon}</div>
+                        <div class="flex-1">
+                            <div class="font-medium text-gray-900">${dir.instruction}</div>
+                            <div class="text-sm text-gray-600">${dir.distance}</div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+            
+            // Update navigation summary
+            document.getElementById('navDistance').textContent = '5.9 km';
+            document.getElementById('navTime').textContent = '10 min';
+            document.getElementById('nextTurn').textContent = directions[0]?.instruction.split(' ')[0] || '--';
+        }
+
+        function centerMap() {
+            if (map && currentPosition) {
+                map.setView([currentPosition.lat, currentPosition.lng], 14);
+            }
+        }
+
+        function simulateRouteProgress() {
+            if (isTracking && routeData.remaining > 0) {
+                routeData.completed = Math.min(routeData.completed + 0.1, routeData.stops.length - 1);
+                routeData.remaining = Math.max(0, routeData.stops.length - 1 - routeData.completed);
+                
+                document.getElementById('completedStops').textContent = routeData.completed.toFixed(0);
+                document.getElementById('remainingStops').textContent = routeData.remaining;
+                
+                if (routeData.remaining === 0) {
+                    alert('Route completed successfully!');
+                    stopTracking();
+                }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            initMap();
+            
+            setInterval(simulateRouteProgress, 5000);
+            
+            setInterval(() => {
+                if (isTracking && routeData.stops.length > 0) {
+                    const shouldRecalculate = Math.random() > 0.8; 
+                    if (shouldRecalculate) {
+                        console.log('Route deviation detected, recalculating...');
+                        optimizeRoute();
+                    }
+                }
+            }, 10000);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: fleet_routing
+      POSTGRES_USER: fleet_user
+      POSTGRES_PASSWORD: fleet_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - fleet_network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - fleet_network
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql://fleet_user:fleet_password@postgres:5432/fleet_routing
+      REDIS_URL: redis://redis:6379
+      SECRET_KEY: your-secret-key-here
+      JWT_SECRET_KEY: your-jwt-secret-key
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - fleet_network
+    volumes:
+      - ./backend:/app
+
+  worker:
+    build: ./backend
+    command: celery -A app.celery worker --loglevel=info
+    environment:
+      DATABASE_URL: postgresql://fleet_user:fleet_password@postgres:5432/fleet_routing
+      REDIS_URL: redis://redis:6379
+      SECRET_KEY: your-secret-key-here
+      JWT_SECRET_KEY: your-jwt-secret-key
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - fleet_network
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_WS_URL: ws://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - fleet_network
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:
+
+networks:
+  fleet_network:
+    driver: bridge

@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FleetRoute AI - Google Maps Style GPS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .leaflet-routing-container {
+            display: none !important;
+        }
+        .route-line {
+            stroke: #4285F4;
+            stroke-width: 5;
+            fill: none;
+        }
+        .vehicle-marker {
+            transition: all 1s ease-in-out;
+            z-index: 1000;
+        }
+        .pulse-animation {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.8; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .route-info-card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 16px;
+        }
+        .google-maps-style {
+            font-family: 'Roboto', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 google-maps-style">
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b">
+        <div class="max-w-7xl mx-auto px-4 py-3">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-3">
+                    <h1 class="text-xl font-bold text-blue-600">🚀 FleetRoute AI</h1>
+                    <span class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">LIVE GPS</span>
+                </div>
+                <div class="flex items-center space-x-4 text-sm">
+                    <span>🚚 Active: <strong id="activeVehicles" class="text-green-600">3</strong></span>
+                    <span>📦 Orders: <strong id="activeOrders" class="text-blue-600">0</strong></span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto p-4">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <!-- Left Panel -->
+            <div class="lg:col-span-1 space-y-4">
+                <!-- Order Form -->
+                <div class="bg-white rounded-lg shadow-sm p-4">
+                    <h2 class="font-semibold text-gray-900 mb-3">📦 Create Delivery Order</h2>
+                    <form id="orderForm" class="space-y-3">
+                        <input type="text" id="customerName" placeholder="Customer Name" required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <input type="text" id="pickupAddress" placeholder="Pickup Address (Hyderabad)" required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <input type="text" id="deliveryAddress" placeholder="Delivery Address (Hyderabad)" required
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <select id="priority" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            <option value="normal">Normal Delivery</option>
+                            <option value="urgent">Urgent Delivery</option>
+                            <option value="express">Express Delivery</option>
+                        </select>
+                        <button type="submit" class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 font-medium">
+                            🚚 Create Order & Show GPS Route
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Active Orders -->
+                <div class="bg-white rounded-lg shadow-sm p-4">
+                    <h2 class="font-semibold text-gray-900 mb-3">📋 Active Deliveries</h2>
+                    <div id="ordersList" class="space-y-2">
+                        <div class="text-gray-500 text-sm">No active orders</div>
+                    </div>
+                </div>
+
+                <!-- Route Info -->
+                <div id="routeInfo" class="route-info-card hidden">
+                    <h3 class="font-semibold text-gray-900 mb-3">📍 Navigation Details</h3>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">📏 Distance:</span>
+                            <strong id="routeDistance" class="text-blue-600">-- km</strong>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">⏱️ Time:</span>
+                            <strong id="routeTime" class="text-blue-600">-- mins</strong>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">🚚 Vehicle:</span>
+                            <strong id="routeVehicle" class="text-blue-600">--</strong>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">📊 Traffic:</span>
+                            <strong id="routeTraffic" class="text-green-600">Light</strong>
+                        </div>
+                    </div>
+                    <div class="mt-3 pt-3 border-t">
+                        <div class="text-xs text-gray-600">
+                            <div>🏢 Depot → 📍 Pickup → 🏠 Delivery</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Map -->
+            <div class="lg:col-span-2">
+                <div class="bg-white rounded-lg shadow-sm p-4">
+                    <div class="flex justify-between items-center mb-3">
+                        <h2 class="font-semibold text-gray-900">🗺️ Live GPS Navigation</h2>
+                        <div class="flex space-x-2">
+                            <button onclick="centerMap()" class="bg-gray-100 text-gray-700 px-3 py-1 rounded text-sm hover:bg-gray-200">
+                                <i class="fas fa-crosshairs"></i> Center
+                            </button>
+                            <button onclick="toggleTraffic()" class="bg-gray-100 text-gray-700 px-3 py-1 rounded text-sm hover:bg-gray-200">
+                                <i class="fas fa-traffic-light"></i> Traffic
+                            </button>
+                        </div>
+                    </div>
+                    <div id="map" class="h-96 rounded-lg border border-gray-200"></div>
+                    
+                    <!-- GPS Status Bar -->
+                    <div class="mt-3 p-2 bg-gray-50 rounded text-xs text-gray-600">
+                        <div class="flex justify-between">
+                            <span>🛰️ GPS Status: <strong class="text-green-600">Connected</strong></span>
+                            <span>📡 Signal: <strong class="text-green-600">Strong</strong></span>
+                            <span>🔄 Update: <strong class="text-blue-600">Every 2s</strong></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Initialize map centered on Hyderabad
+        const map = L.map('map').setView([17.3850, 78.4867], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Data
+        let orders = [];
+        let vehicles = [
+            { id: 1, name: 'MH12 AB 1234', driver: 'Raj Kumar', lat: 17.3850, lng: 78.4867, status: 'active' },
+            { id: 2, name: 'MH12 CD 5678', driver: 'Sarah Johnson', lat: 17.3950, lng: 78.4967, status: 'active' },
+            { id: 3, name: 'MH12 EF 9012', driver: 'Mike Chen', lat: 17.4050, lng: 78.5067, status: 'active' }
+        ];
+        let markers = {};
+        let routes = [];
+        let showTraffic = false;
+
+        // Custom Icons
+        const depotIcon = L.divIcon({
+            html: '<div style="background: #4285F4; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 16px; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">🏢</div>',
+            iconSize: [32, 32]
+        });
+
+        const vehicleIcon = L.divIcon({
+            html: '<div class="vehicle-marker" style="background: #34A853; color: white; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 14px; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">🚚</div>',
+            iconSize: [28, 28]
+        });
+
+        const pickupIcon = L.divIcon({
+            html: '<div style="background: #FBBC04; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 12px; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">📍</div>',
+            iconSize: [24, 24]
+        });
+
+        const deliveryIcon = L.divIcon({
+            html: '<div style="background: #EA4335; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 12px; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">🏠</div>',
+            iconSize: [24, 24]
+        });
+
+        // Add depot
+        L.marker([17.3850, 78.4867], { icon: depotIcon })
+            .addTo(map)
+            .bindPopup('<b>Main Depot</b><br>Hyderabad Central');
+
+        // Add vehicles
+        vehicles.forEach(vehicle => {
+            const marker = L.marker([vehicle.lat, vehicle.lng], { icon: vehicleIcon })
+                .addTo(map)
+                .bindPopup(`<b>${vehicle.name}</b><br>${vehicle.driver}<br>Status: ${vehicle.status}`);
+            markers[vehicle.id] = marker;
+        });
+
+        // Hyderabad address coordinates
+        function getHyderabadCoords(address) {
+            const coords = {
+                'nalla narasimha reddy': [17.3850, 78.4867],
+                'korremula': [17.3950, 78.4967],
+                'peerzadiguda': [17.3750, 78.4767],
+                'vanasthalipuram': [17.4050, 78.5067],
+                'hyderabad': [17.3850, 78.4867],
+                'secunderabad': [17.4498, 78.4867],
+                'banjara hills': [17.4177, 78.4533],
+                'gachibowli': [17.4495, 78.3810],
+                'hitec city': [17.4480, 78.3780],
+                'madhapur': [17.4474, 78.3786]
+            };
+            
+            for (let place in coords) {
+                if (address.toLowerCase().includes(place)) {
+                    return coords[place];
+                }
+            }
+            
+            // Default Hyderabad coordinates
+            return [17.3850 + (Math.random() - 0.5) * 0.05, 78.4867 + (Math.random() - 0.5) * 0.05];
+        }
+
+        // Create Google Maps style route
+        function createGoogleMapsRoute(vehicle, pickup, delivery, order) {
+            // Clear existing route
+            if (vehicle.routeControl) {
+                map.removeControl(vehicle.routeControl);
+            }
+
+            // Create routing control
+            const routeControl = L.Routing.control({
+                waypoints: [
+                    L.latLng(vehicle.lat, vehicle.lng),
+                    L.latLng(pickup[0], pickup[1]),
+                    L.latLng(delivery[0], delivery[1])
+                ],
+                routeWhileDragging: false,
+                addWaypoints: false,
+                createMarker: function() { return null; }, // Hide default markers
+                lineOptions: {
+                    styles: [
+                        { color: '#4285F4', weight: 6, opacity: 0.8 },
+                        { color: 'white', weight: 8, opacity: 0.3 }
+                    ]
+                }
+            }).on('routesfound', function(e) {
+                const routes = e.routes;
+                const summary = routes[0].summary;
+                
+                // Update route info
+                document.getElementById('routeDistance').textContent = (summary.totalDistance / 1000).toFixed(1) + ' km';
+                document.getElementById('routeTime').textContent = Math.round(summary.totalTime / 60) + ' mins';
+                document.getElementById('routeVehicle').textContent = vehicle.name;
+                
+                document.getElementById('routeInfo').classList.remove('hidden');
+            }).addTo(map);
+
+            vehicle.routeControl = routeControl;
+        }
+
+        // Create order
+        document.getElementById('orderForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const order = {
+                id: Date.now(),
+                customer: document.getElementById('customerName').value,
+                pickup: document.getElementById('pickupAddress').value,
+                delivery: document.getElementById('deliveryAddress').value,
+                priority: document.getElementById('priority').value,
+                status: 'pending',
+                timestamp: new Date().toLocaleTimeString()
+            };
+
+            orders.push(order);
+            updateOrdersList();
+            
+            // Get coordinates
+            const pickupCoords = getHyderabadCoords(order.pickup);
+            const deliveryCoords = getHyderabadCoords(order.delivery);
+            
+            // Center map on route area
+            const bounds = L.latLngBounds([
+                [pickupCoords[0], pickupCoords[1]],
+                [deliveryCoords[0], deliveryCoords[1]]
+            ]);
+            map.fitBounds(bounds, { padding: [50, 50] });
+            
+            // Add pickup and delivery markers
+            L.marker(pickupCoords, { icon: pickupIcon })
+                .addTo(map)
+                .bindPopup(`<b>Pickup</b><br>${order.pickup}<br>${order.customer}`);
+            
+            L.marker(deliveryCoords, { icon: deliveryIcon })
+                .addTo(map)
+                .bindPopup(`<b>Delivery</b><br>${order.delivery}<br>${order.customer}`);
+
+            // Create Google Maps style route
+            const assignedVehicle = vehicles[0];
+            createGoogleMapsRoute(assignedVehicle, pickupCoords, deliveryCoords, order);
+            
+            // Start vehicle movement
+            startVehicleMovement(assignedVehicle, pickupCoords, deliveryCoords, order);
+            
+            document.getElementById('orderForm').reset();
+            showNotification('Order created! GPS route calculated.', 'success');
+        });
+
+        // Move vehicle along route
+        function startVehicleMovement(vehicle, pickup, delivery, order) {
+            const route = [pickup, delivery];
+            let waypointIndex = 0;
+            let progress = 0;
+            
+            const moveInterval = setInterval(() => {
+                if (waypointIndex >= route.length) {
+                    clearInterval(moveInterval);
+                    order.status = 'delivered';
+                    updateOrdersList();
+                    showNotification('Order delivered successfully!', 'success');
+                    return;
+                }
+                
+                const target = route[waypointIndex];
+                const current = [vehicle.lat, vehicle.lng];
+                
+                // Calculate step towards target
+                const step = 0.05; // 5% of distance per update
+                const newLat = current[0] + (target[0] - current[0]) * step;
+                const newLng = current[1] + (target[1] - current[1]) * step;
+                
+                // Update vehicle position
+                vehicle.lat = newLat;
+                vehicle.lng = newLng;
+                markers[vehicle.id].setLatLng([newLat, newLng]);
+                
+                // Check if reached waypoint
+                const distance = Math.sqrt(
+                    Math.pow(target[0] - newLat, 2) + 
+                    Math.pow(target[1] - newLng, 2)
+                );
+                
+                if (distance < 0.001) {
+                    waypointIndex++;
+                    if (waypointIndex < route.length) {
+                        showNotification(`Vehicle reached ${waypointIndex === 1 ? 'pickup location' : 'delivery destination'}!`, 'info');
+                    }
+                }
+            }, 1000);
+        }
+
+        // Update orders list
+        function updateOrdersList() {
+            const ordersList = document.getElementById('ordersList');
+            document.getElementById('activeOrders').textContent = orders.filter(o => o.status === 'pending').length;
+            
+            if (orders.length === 0) {
+                ordersList.innerHTML = '<div class="text-gray-500 text-sm">No active orders</div>';
+                return;
+            }
+            
+            ordersList.innerHTML = orders.map(order => `
+                <div class="border-l-4 ${
+                    order.priority === 'urgent' ? 'border-red-500' : 
+                    order.priority === 'express' ? 'border-orange-500' : 'border-blue-500'
+                } pl-3 py-2">
+                    <div class="font-medium text-sm">${order.customer}</div>
+                    <div class="text-xs text-gray-600">
+                        📍 ${order.pickup}
+                        🏠 ${order.delivery}
+                    </div>
+                    <div class="flex justify-between items-center mt-1">
+                        <span class="text-xs ${
+                            order.status === 'delivered' ? 'text-green-600' : 'text-blue-600'
+                        }">${order.status}</span>
+                        <span class="text-xs text-gray-500">${order.timestamp}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Map controls
+        function centerMap() {
+            map.setView([17.3850, 78.4867], 13);
+        }
+
+        function toggleTraffic() {
+            showTraffic = !showTraffic;
+            showNotification(showTraffic ? 'Traffic layer enabled' : 'Traffic layer disabled', 'info');
+        }
+
+        // Show notification
+        function showNotification(message, type) {
+            const notification = document.createElement('div');
+            notification.className = `fixed top-4 right-4 px-4 py-2 rounded-lg shadow-lg z-50 text-sm ${
+                type === 'success' ? 'bg-green-500 text-white' : 
+                type === 'error' ? 'bg-red-500 text-white' : 
+                'bg-blue-500 text-white'
+            }`;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => notification.remove(), 3000);
+        }
+
+        // Initialize
+        updateOrdersList();
+        console.log('🚀 FleetRoute AI - Google Maps Style GPS Ready!');
+    </script>
+</body>
+</html>
